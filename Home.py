@@ -1,48 +1,67 @@
-if not plot_df.empty:
-            try:
-                fig = px.timeline(
-                    plot_df,
-                    x_start="Start",
-                    x_end="End",
-                    y="Activity",
-                    color="Status",
-                    text="Activity", # แสดงชื่อกิจกรรมบนแท่งกราฟเลย
-                    color_discrete_map={"Completed": "#2ecc71", "In Progress": "#f1c40f", "Pending": "#e74c3c"}
-                )
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+from datetime import datetime, date
+import os
 
-                # --- ส่วนการปรับสเกลให้ไม่โล่ง ---
-                fig.update_yaxes(autorange="reversed", showgrid=True) # แสดงเส้นกริดแนวนอน
-                
-                fig.update_xaxes(
-                    showgrid=True,             # แสดงเส้นกริดแนวตั้ง (เส้นเทียบวัน)
-                    gridwidth=1, 
-                    gridcolor='LightGrey',
-                    dtick="D1",                # บังคับให้แสดงสเกลทุกๆ 1 วัน (ถ้าช่วงงานสั้น)
-                    # ถ้าช่วงงานยาวมาก ให้เปลี่ยน D1 เป็น "M1" (เดือน) หรือ 604800000 (1 สัปดาห์)
-                    tickformat="%d %b\n%Y",    # รูปแบบวันที่: วัน เดือน ปี (ขึ้นบรรทัดใหม่)
-                    side="top"                 # เอาสเกลวันที่ไว้ด้านบนให้ดูง่ายเหมือน MS Project
-                )
+st.set_page_config(page_title="Project Timeline Pro", layout="wide")
 
-                fig.update_layout(
-                    xaxis_title="Timeline (Day-by-Day Scale)",
-                    yaxis_title="",
-                    height=300 + (len(plot_df) * 40), # ปรับความสูงตามจำนวนงาน
-                    margin=dict(l=20, r=20, t=100, b=20),
-                    showlegend=True,
-                    legend_alignment="left",
-                    # เพิ่มเส้นบอก "วันนี้" (Today Line)
-                    shapes=[dict(
-                        type='line', yref='paper', y0=0, y1=1,
-                        xref='x', x0=date.today(), x1=date.today(),
-                        line=dict(color="Red", width=2, dash="dash")
-                    )],
-                    annotations=[dict(
-                        x=date.today(), y=0, xref="x", yref="paper",
-                        text="Today", showarrow=False, font=dict(color="Red")
-                    )]
-                )
-                
-                # ทำให้แท่งกราฟเล็กลงหน่อยเพื่อให้เห็นเส้นสเกลชัดขึ้น
-                fig.update_traces(width=0.6) 
-                
-                st.plotly_chart(fig, use_container_width=True)
+# --- 1. Database Setup (CSV) ---
+DB_FILE = "project_data.csv"
+
+def load_data():
+    if os.path.exists(DB_FILE):
+        try:
+            df = pd.read_csv(DB_FILE)
+            df['Start'] = pd.to_datetime(df['Start']).dt.date
+            df['End'] = pd.to_datetime(df['End']).dt.date
+            return df
+        except:
+            return pd.DataFrame(columns=["Project", "Activity", "Start", "End", "Status"])
+    return pd.DataFrame(columns=["Project", "Activity", "Start", "End", "Status"])
+
+def save_data(df):
+    df.to_csv(DB_FILE, index=False)
+
+if 'master_df' not in st.session_state:
+    st.session_state.master_df = load_data()
+
+# --- 2. Sidebar Overview ---
+with st.sidebar:
+    st.title("🏗️ Project Overview")
+    new_p = st.text_input("ชื่อโปรเจกต์ใหม่:")
+    if st.button("➕ สร้างโปรเจกต์"):
+        if new_p:
+            new_row = pd.DataFrame([{"Project": new_p, "Activity": "เริ่มแผนงาน", "Start": date.today(), "End": date.today(), "Status": "Pending"}])
+            st.session_state.master_df = pd.concat([st.session_state.master_df, new_row], ignore_index=True)
+            save_data(st.session_state.master_df)
+            st.rerun()
+
+    st.markdown("---")
+    project_list = st.session_state.master_df["Project"].unique().tolist()
+    selected_project = st.selectbox("📂 เลือกโปรเจกต์:", options=project_list) if project_list else None
+
+# --- 3. Main Interface ---
+if selected_project:
+    st.title(f"📊 Timeline: {selected_project}")
+    
+    # ดึงข้อมูลของโปรเจกต์ที่เลือก
+    mask = st.session_state.master_df["Project"] == selected_project
+    project_df = st.session_state.master_df[mask].copy()
+    
+    st.subheader("📝 รายละเอียดกิจกรรม")
+    edited_df = st.data_editor(
+        project_df,
+        column_order=("Activity", "Start", "End", "Status"),
+        num_rows="dynamic",
+        column_config={
+            "Start": st.column_config.DateColumn("วันเริ่ม", required=True, format="DD/MM/YYYY"),
+            "End": st.column_config.DateColumn("วันเสร็จ", required=True, format="DD/MM/YYYY"),
+            "Status": st.column_config.SelectboxColumn("สถานะ", options=["Pending", "In Progress", "Completed"])
+        },
+        use_container_width=True,
+        key=f"editor_{selected_project}"
+    )
+
+    if st.button("💾 บันทึกข้อมูล (Save)"):
+        other_projects = st.session_state.master_df[st.session_state.master
